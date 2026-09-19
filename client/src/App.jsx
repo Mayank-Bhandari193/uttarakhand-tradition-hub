@@ -1,90 +1,119 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
+import StreaksPage from './components/StreaksPage';
 import VideoModal from './components/VideoModal';
 import LoginModal from './components/LoginModal';
+import NotificationBanner from './components/NotificationBanner';
 
 export default function App() {
+  const [currentTab, setCurrentTab] = useState('dashboard'); // 'dashboard' ya 'streaks'
+  const [videos, setVideos] = useState([]);
   const [activeVideo, setActiveVideo] = useState(null);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [user, setUser] = useState(null);
-  const [streakClaimed, setStreakClaimed] = useState(false);
+  const [points, setPoints] = useState(3450);
+  const [streakDays, setStreakDays] = useState(15);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('uttarakhand_user');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+    axios.get('http://localhost:5000/api/videos')
+      .then(res => setVideos(res.data))
+      .catch(err => console.log(err));
+
+    const saved = localStorage.getItem('uttarakhand_user');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      setUser(parsed);
+      if (parsed.pahadiPoints) setPoints(parsed.pahadiPoints);
     }
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('uttarakhand_user');
-    setUser(null);
-  };
+  // AUTOMATIC REWARD: Jab user video 85% ya puri dekh leta hai
+  const handleVideoCompleted = ({ bonusPoints, videoTitle }) => {
+    setPoints(prev => {
+      const next = prev + bonusPoints;
+      if (user) {
+        const updated = { ...user, pahadiPoints: next };
+        localStorage.setItem('uttarakhand_user', JSON.stringify(updated));
+      }
+      return next;
+    });
 
-  const handleClaimStreak = () => {
-    setStreakClaimed(true);
-    if (!user) {
-      setIsLoginOpen(true);
-    }
+    setStreakDays(prev => prev + 1);
   };
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800">
-      {/* Navigation */}
       <Navbar 
         onOpenLogin={() => setIsLoginOpen(true)}
         user={user}
-        onLogout={handleLogout}
-        onTriggerLive={() => setActiveVideo({
-          youtubeId: 'AbZvYpSdKTY',
-          title: 'Live Darshan: माँ नंदा देवी जागर एवं संध्या आरती',
-          category: 'Live Stream',
-          isLive: true
-        })}
+        onLogout={() => {
+          localStorage.removeItem('uttarakhand_user');
+          setUser(null);
+        }}
+        currentTab={currentTab}
+        onSelectTab={(tab) => setCurrentTab(tab)}
+        onTriggerLive={() => {
+          const live = videos.find(v => v.isLive) || videos[0];
+          setActiveVideo(live);
+        }}
       />
 
-      {/* Hero Banner */}
       <Hero />
 
-      {/* Main Body */}
       <main className="max-w-7xl mx-auto w-full p-4 md:p-6 flex flex-col lg:flex-row gap-6 flex-1">
-        <Sidebar user={user} />
-        <Dashboard 
-          onPlayVideo={(video) => setActiveVideo(video)}
-          user={user}
-          streakClaimed={streakClaimed}
-          onClaimStreak={handleClaimStreak}
+        <Sidebar 
+          user={user} 
+          points={points} 
+          streakDays={streakDays} 
+          currentTab={currentTab}
+          onSelectTab={(tab) => setCurrentTab(tab)}
         />
+
+        {currentTab === 'dashboard' ? (
+          <Dashboard 
+            videos={videos}
+            onPlayVideo={(v) => setActiveVideo(v)}
+            user={user}
+            points={points}
+            streakDays={streakDays}
+            onClaimManualStreak={() => {
+              setPoints(p => p + 100);
+              alert("100 Points आपके खाते में जुड़ गए!");
+            }}
+          />
+        ) : (
+          <StreaksPage 
+            points={points} 
+            streakDays={streakDays} 
+            user={user} 
+            onOpenVideo={(v) => setActiveVideo(v)}
+          />
+        )}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-[#0B1528] text-gray-400 py-6 border-t border-slate-800 text-center text-xs mt-8">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-3">
-          <p>© 2026 The Channel of Uttarakhand Tradition (@pushpabhandari6645). Devbhoomi Heritage Preservation.</p>
-          <div className="flex gap-4">
-            <a href="https://www.youtube.com/@pushpabhandari6645" target="_blank" rel="noreferrer" className="hover:text-amber-400">
-              Official YouTube Channel
-            </a>
-            <a href="#feed" className="hover:text-amber-400">Jagar & Mangal Geet</a>
-            <a href="#chowpal" className="hover:text-amber-400">Chowpal Forum</a>
-          </div>
-        </div>
-      </footer>
-
-      {/* Active Video Player Modal */}
+      {/* Video Modal with Watch-time detection */}
       <VideoModal 
         video={activeVideo} 
         onClose={() => setActiveVideo(null)} 
+        onVideoCompleted={handleVideoCompleted}
       />
 
-      {/* Login / Register Modal */}
       <LoginModal 
         isOpen={isLoginOpen} 
         onClose={() => setIsLoginOpen(false)}
-        onLoginSuccess={(userData) => setUser(userData)}
+        onLoginSuccess={(userData) => {
+          setUser(userData);
+          setPoints(userData.pahadiPoints || 3500);
+        }}
+      />
+
+      <NotificationBanner 
+        latestVideo={videos[0]} 
+        onPlayVideo={(v) => setActiveVideo(v)} 
       />
     </div>
   );
